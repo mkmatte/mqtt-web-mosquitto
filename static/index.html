@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visualizador MQTT — Mosquitto</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">⚡</div>
+      <div>
+        <h1>Visualizador MQTT Mosquitto</h1>
+        <p class="subtitle">Monitoramento de canais ativos e publicação em tempo real</p>
+      </div>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-pill" id="connection-pill">
+        <span class="dot" id="connection-dot"></span>
+        <span id="connection-text">Conectando...</span>
+      </div>
+      <div class="meta-pill">
+        <span class="meta-label">Broker:</span>
+        <code id="broker-address">--:--</code>
+      </div>
+      <div class="meta-pill">
+        <span class="meta-label">Janela:</span>
+        <strong id="retention-label">Últimas 4h</strong>
+      </div>
+      <div class="meta-pill">
+        <span class="meta-label">Canais ativos:</span>
+        <strong id="active-count">0</strong>
+      </div>
+      <div class="meta-pill" id="auth-user-pill" hidden>
+        <span class="meta-label">Usuário:</span>
+        <strong id="auth-username">--</strong>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" id="open-password-modal-btn" hidden>
+        Alterar Senha
+      </button>
+      <button type="button" class="btn btn-ghost btn-sm" id="logout-btn" hidden>
+        Sair
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel channels-panel">
+      <div class="panel-header">
+        <h2>Canais Ativos <span class="badge" id="channels-window-badge">4h</span></h2>
+        <button type="button" class="btn btn-ghost btn-sm" id="clear-topic-filter" hidden>
+          Ver todos
+        </button>
+      </div>
+
+      <div class="search-box">
+        <input
+          type="search"
+          id="channel-search"
+          placeholder="Filtrar canal (ex: sensores/sala)..."
+          autocomplete="off"
+        />
+      </div>
+
+      <div class="channels-list" id="channels-list">
+        <div class="empty-state">Carregando canais ativos...</div>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <div class="panel publish-panel">
+        <div class="panel-header">
+          <h2>Enviar Mensagem para Canal</h2>
+          <span class="hint">Publica diretamente no Mosquitto</span>
+        </div>
+
+        <form id="publish-form" class="publish-form">
+          <div class="form-row">
+            <div class="field field-topic">
+              <label for="pub-topic">Canal (Tópico)</label>
+              <input
+                type="text"
+                id="pub-topic"
+                name="topic"
+                placeholder="ex: casa/sala/comando"
+                required
+                autocomplete="off"
+              />
+            </div>
+
+            <div class="field field-qos">
+              <label for="pub-qos">QoS</label>
+              <select id="pub-qos" name="qos">
+                <option value="0" selected>0 - No máximo 1x</option>
+                <option value="1">1 - Pelo menos 1x</option>
+                <option value="2">2 - Exatamente 1x</option>
+              </select>
+            </div>
+
+            <div class="field field-retain">
+              <label class="checkbox-label" for="pub-retain">
+                <input type="checkbox" id="pub-retain" name="retain" />
+                <span>Retain</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label-row">
+              <label for="pub-payload">Mensagem (Payload)</label>
+              <button type="button" class="btn btn-ghost btn-xs" id="format-json-btn">
+                Formatar JSON
+              </button>
+            </div>
+            <textarea
+              id="pub-payload"
+              name="payload"
+              rows="3"
+              placeholder='{"status": "on"} ou texto simples'
+            ></textarea>
+          </div>
+
+          <div class="form-actions">
+            <div class="publish-feedback" id="publish-feedback" role="status" aria-live="polite"></div>
+            <button type="submit" class="btn btn-primary" id="publish-btn">
+              Enviar Mensagem
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel messages-panel">
+        <div class="panel-header">
+          <div class="messages-title-group">
+            <h2>Mensagens em Tempo Real</h2>
+            <span class="filter-chip" id="active-filter-chip" hidden>
+              Canal: <strong id="active-filter-name"></strong>
+            </span>
+          </div>
+
+          <div class="toolbar">
+            <button type="button" class="btn btn-ghost btn-sm" id="toggle-stream-btn">
+              Pausar
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" id="clear-messages-btn">
+              Limpar Tela
+            </button>
+          </div>
+        </div>
+
+        <div class="messages-list" id="messages-list">
+          <div class="empty-state">Aguardando mensagens do servidor Mosquitto...</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-overlay" id="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <div class="modal-card">
+      <h2 id="login-title">Acesso ao Visualizador MQTT</h2>
+      <p class="modal-subtitle">Informe usuário e senha para visualizar os canais e enviar mensagens.</p>
+
+      <form id="login-form" class="modal-form">
+        <div class="field">
+          <label for="login-username">Usuário</label>
+          <input
+            type="text"
+            id="login-username"
+            name="username"
+            placeholder="Usuário de acesso"
+            required
+            autocomplete="username"
+          />
+        </div>
+
+        <div class="field">
+          <label for="login-password">Senha</label>
+          <input
+            type="password"
+            id="login-password"
+            name="password"
+            placeholder="Digite a senha"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+
+        <div class="modal-feedback err" id="login-error" role="alert"></div>
+
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary" id="login-submit-btn">Entrar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="password-modal" role="dialog" aria-modal="true" aria-labelledby="password-title" hidden>
+    <div class="modal-card">
+      <h2 id="password-title">Alterar Senha de Acesso</h2>
+      <p class="modal-subtitle">A nova senha passa a valer imediatamente e é salva na configuração local.</p>
+
+      <form id="password-form" class="modal-form">
+        <div class="field">
+          <label for="current-password">Senha Atual</label>
+          <input
+            type="password"
+            id="current-password"
+            name="current_password"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+
+        <div class="field">
+          <label for="new-password">Nova Senha</label>
+          <input
+            type="password"
+            id="new-password"
+            name="new_password"
+            minlength="4"
+            placeholder="Mínimo de 4 caracteres"
+            required
+            autocomplete="new-password"
+          />
+        </div>
+
+        <div class="field">
+          <label for="confirm-password">Confirmar Nova Senha</label>
+          <input
+            type="password"
+            id="confirm-password"
+            name="confirm_password"
+            minlength="4"
+            required
+            autocomplete="new-password"
+          />
+        </div>
+
+        <div class="modal-feedback" id="password-feedback" role="status" aria-live="polite"></div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="close-password-modal-btn">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="password-submit-btn">Salvar Nova Senha</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# Ambiente e segredos (NUNCA enviar senhas ou dados do servidor)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Ambiente virtual Python
+venv/
+.venv/
+env/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Dados locais e logs
+data/
+*.db
+*.sqlite
+*.sqlite3
+logs/
+*.log
+
+# IDEs e sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
