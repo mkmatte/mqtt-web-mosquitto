@@ -39,13 +39,15 @@ SESSION_COOKIE_NAME = "mqtt_vis_session"
 class AuthManager:
     """Gerencia autenticação única e alteração persistente de senha no .env."""
 
+    MAX_SESSIONS = 500
+
     def __init__(
         self, username: str, password: str, env_path: Path | None = None
     ) -> None:
         self.username = username
         self.password = password
         self.env_path = env_path or (BASE_DIR / ".env")
-        self._sessions: set[str] = set()
+        self._sessions: dict[str, None] = {}
         self._lock = threading.Lock()
 
     @classmethod
@@ -62,7 +64,10 @@ class AuthManager:
     def create_session(self) -> str:
         token = secrets.token_urlsafe(32)
         with self._lock:
-            self._sessions.add(token)
+            while len(self._sessions) >= self.MAX_SESSIONS:
+                oldest = next(iter(self._sessions))
+                self._sessions.pop(oldest, None)
+            self._sessions[token] = None
         return token
 
     def verify_session(self, token: str | None) -> bool:
@@ -75,7 +80,7 @@ class AuthManager:
         if not token:
             return
         with self._lock:
-            self._sessions.discard(token)
+            self._sessions.pop(token, None)
 
     def change_password(self, current_password: str, new_password: str) -> str:
         with self._lock:
@@ -93,7 +98,7 @@ class AuthManager:
             os.environ["WEB_AUTH_PASSWORD"] = new_password
             self._sessions.clear()
             new_token = secrets.token_urlsafe(32)
-            self._sessions.add(new_token)
+            self._sessions[new_token] = None
             return new_token
 
 
@@ -134,8 +139,8 @@ class ChangePasswordRequest(BaseModel):
 class PublishRequest(BaseModel):
     """Payload para publicação de mensagem em um tópico MQTT."""
 
-    topic: str = Field(..., min_length=1, description="Tópico de destino")
-    payload: str = Field(default="", description="Conteúdo da mensagem")
+    topic: str = Field(..., min_length=1, max_length=256, description="Tópico de destino")
+    payload: str = Field(default="", max_length=16384, description="Conteúdo da mensagem")
     qos: int = Field(default=0, ge=0, le=2, description="QoS (0, 1 ou 2)")
     retain: bool = Field(default=False, description="Manter mensagem retida no broker")
 

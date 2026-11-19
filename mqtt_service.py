@@ -63,12 +63,25 @@ class MqttConfig:
         )
 
 
+MAX_PAYLOAD_CHARS = 4096
+MAX_TOTAL_MESSAGES = 5000
+
+
 class MessageStore:
     """Armazenamento SQLite para mensagens e canais ativos na janela configurada."""
 
-    def __init__(self, db_path: str, retention_hours: float = 4.0) -> None:
+    def __init__(
+        self,
+        db_path: str,
+        retention_hours: float = 4.0,
+        max_payload_chars: int = MAX_PAYLOAD_CHARS,
+        max_total_messages: int = MAX_TOTAL_MESSAGES,
+    ) -> None:
         self.db_path = db_path
         self.retention_seconds = max(60.0, retention_hours * 3600.0)
+        self.max_payload_chars = max_payload_chars
+        self.max_total_messages = max_total_messages
+        self._insert_count = 0
         self._lock = threading.Lock()
 
         if db_path != ":memory:":
@@ -109,24 +122,45 @@ class MessageStore:
         timestamp: float | None = None,
     ) -> dict[str, Any]:
         ts = timestamp if timestamp is not None else time.time()
+        safe_payload = (
+            payload[: self.max_payload_chars]
+            if len(payload) > self.max_payload_chars
+            else payload
+        )
         with self._lock:
             cur = self._conn.execute(
                 """
                 INSERT INTO messages (topic, payload, qos, retain, timestamp)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (topic, payload, int(qos), 1 if retain else 0, ts),
+                (topic, safe_payload, int(qos), 1 if retain else 0, ts),
             )
             msg_id = cur.lastrowid
+            self._insert_count += 1
+            if self._insert_count >= 100:
+                self._insert_count = 0
+                self._enforce_row_cap_locked()
             self._conn.commit()
         return {
             "id": msg_id,
             "topic": topic,
-            "payload": payload,
+            "payload": safe_payload,
             "qos": int(qos),
             "retain": bool(retain),
             "timestamp": ts,
         }
+
+    def _enforce_row_cap_locked(self) -> int:
+        cur = self._conn.execute(
+            """
+            DELETE FROM messages
+            WHERE id NOT IN (
+                SELECT id FROM messages ORDER BY id DESC LIMIT ?
+            )
+            """,
+            (self.max_total_messages,),
+        )
+        return cur.rowcount
 
     def prune_expired(self, now: float | None = None) -> int:
         cutoff = (now if now is not None else time.time()) - self.retention_seconds
@@ -134,7 +168,7 @@ class MessageStore:
             cur = self._conn.execute(
                 "DELETE FROM messages WHERE timestamp < ?", (cutoff,)
             )
-            deleted = cur.rowcount
+            deleted = cur.rowcount + self._enforce_row_cap_locked()
             self._conn.commit()
         return deleted
 
